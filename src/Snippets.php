@@ -33,7 +33,7 @@ class Snippets {
             get_template_directory() . "/{$this->theme_directory}/{$name}.php",
             
             // Buscar en el plugin
-            SB_THEME_DIR . "snippets/{$name}.php",
+            JUZTSTUDIO_CM_PLUGIN_PATH . "snippets/{$name}.php",
         ];
         
         // Permitir filtrar rutas

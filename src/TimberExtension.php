@@ -5,6 +5,7 @@ namespace Juztstack\JuztStudio\Community;
 use Twig\Extension\AbstractExtension;
 use Twig\TwigFilter;
 use Twig\TwigFunction;
+use Timber\Timber;
 
 /**
  * Twig Extension para manejar Attachments al estilo Shopify
@@ -38,7 +39,13 @@ class TimberExtension extends AbstractExtension
     {
         return [
             new TwigFunction('attachment', [$this, 'getAttachment']),
+            new TwigFunction('get_menu_items', [$this, 'getMenuItems']),
         ];
+    }
+
+    public function getMenuItems ( $menu_name ) {
+        $menu = Timber::get_menu( $menu_name );
+        return $menu ? $menu->items : [];
     }
 
     /**

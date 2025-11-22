@@ -16,7 +16,8 @@ class Core
     public $sections;
     public $snippets;
     public $compatibility;
-    public $builder; // Agregar esta línea
+    public $builder;
+    public $theme_runtime;
 
     /**
      * Constructor
@@ -72,6 +73,7 @@ class Core
         $this->sections = new Sections();
         $this->snippets = new Snippets();
         $this->compatibility = new Compatibility();
+        $this->theme_runtime = new ThemeRuntime();
 
         // Cargar el builder (solo en admin) - Agregar este bloque
         if (is_admin()) {

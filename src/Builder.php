@@ -1960,22 +1960,21 @@ class Builder
 /**
  * Template Name: {$template_label}{$post_type_line}{$description_line}
  *
- * @package  Endrock-Theme
+ * @package  JuztTheme
  * @subpackage  Timber
  * @since   Timber 0.1
  */
 
+use \Juztstack\JuztStudio\Community\Templates;
 use Timber\Timber;
-use EndrockTheme\Classes\SectionBuilderTemplates;
 
-\$template = new SectionBuilderTemplates();
+\$template = new Templates();
 \$template_content = \$template->get_json_template('{$template_name}');
-
 \$context = Timber::context();
 \$context['order'] = \$template_content['order'];
 \$context['sections'] = \$template_content['sections'];
 
-Timber::render('templates/{$template_name}.twig', \$context);
+Timber::render('templates/{$template_name}.twig', \$context); 
 
 PHP;
     }

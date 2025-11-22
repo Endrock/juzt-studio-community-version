@@ -68,7 +68,7 @@ class Templates {
           get_template_directory() . "/{$this->theme_directory}/{$template_name}.json",
           
           // Buscar en el plugin
-          SB_THEME_DIR . "templates/{$template_name}.json",
+          JUZTSTUDIO_CM_PLUGIN_PATH . "templates/{$template_name}.json",
       ];
       
       // Permitir filtrar rutas
@@ -101,7 +101,7 @@ class Templates {
           get_template_directory() . '/json-page-template.php',
           
           // Buscar en el plugin
-          SB_THEME_DIR . 'templates/json-page-template.php',
+          JUZTSTUDIO_CM_PLUGIN_PATH . 'templates/json-page-template.php',
       ];
       
       // Permitir filtrar rutas
@@ -186,7 +186,7 @@ class Templates {
       }
       
       // Buscar en el plugin
-      $plugin_templates_dir = SB_THEME_DIR . 'templates';
+      $plugin_templates_dir = JUZTSTUDIO_CM_PLUGIN_PATH . 'templates';
       if (is_dir($plugin_templates_dir)) {
           $this->scan_templates_directory($plugin_templates_dir, $templates, 'plugin');
       }

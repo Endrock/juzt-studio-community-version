@@ -38,8 +38,8 @@ class Sections {
           get_template_directory() . "/{$this->theme_directory}/{$section_id}/{$section_id}.php",
           
           // Buscar en el plugin
-          SB_THEME_DIR . "sections/{$section_id}.php",
-          SB_THEME_DIR . "sections/{$section_id}/{$section_id}.php",
+          JUZTSTUDIO_CM_PLUGIN_PATH . "sections/{$section_id}.php",
+          JUZTSTUDIO_CM_PLUGIN_PATH . "sections/{$section_id}/{$section_id}.php",
       ];
       
       // Permitir filtrar rutas
