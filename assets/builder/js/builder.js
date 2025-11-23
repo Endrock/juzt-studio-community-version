@@ -12,9 +12,11 @@
 
   const state = {
     templates: [],
+    templatesBySource: null,
     selectedTemplate: null,
     availableSections: [],
     sectionSchemas: {},
+    sectionsBySource: null,
     availablePostTypes: [], // NUEVO
     generalSettings: {}, // NUEVO: Settings generales
     generalSettingsSchema: null, // NUEVO: Schema de settings generales
@@ -447,7 +449,7 @@
     //close app
     if (dom.closeApp) {
       dom.closeApp.addEventListener("click", function () {
-        window.location.href = "/wp-admin";
+        window.location.href = window.sectionsBuilderData.adminUrl;
       });
     }
 
@@ -779,6 +781,53 @@
 
   async function loadTemplates() {
     try {
+      // Intentar cargar templates agrupados
+      const response = await fetch(config.ajaxUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          action: "get_templates_by_source", // ← NUEVO endpoint
+          nonce: config.nonce,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success && data.data.templates_by_source) {
+        // Guardar templates agrupados
+        state.templatesBySource = data.data.templates_by_source;
+
+        // También mantener lista plana para compatibilidad
+        state.templates = {};
+        Object.values(state.templatesBySource).forEach((source) => {
+          source.templates.forEach((template) => {
+            state.templates[template.id] = {
+              ...template,
+              source: source.id,
+              source_name: source.name,
+            };
+          });
+        });
+
+        console.log("Templates por fuente:", state.templatesBySource);
+        console.log("Templates planos:", state.templates);
+        renderTemplatesList();
+      } else {
+        // Fallback: cargar con endpoint antiguo
+        console.warn("Usando endpoint antiguo de templates");
+        await loadTemplatesLegacy();
+      }
+    } catch (error) {
+      console.error("Error loading templates:", error);
+      await loadTemplatesLegacy();
+    }
+  }
+
+  // Fallback: método anterior
+  async function loadTemplatesLegacy() {
+    try {
       const response = await fetch(config.ajaxUrl, {
         method: "POST",
         headers: {
@@ -794,6 +843,7 @@
 
       if (data.success) {
         state.templates = data.data;
+        state.templatesBySource = null; // No hay agrupamiento
         console.log("Plantillas cargadas:", state.templates);
         renderTemplatesList();
       } else {
@@ -809,7 +859,8 @@
   // CARGAR SECCIONES DISPONIBLES
   // ==========================================
 
-  async function loadAvailableSections() {
+  // Fallback: método anterior
+  async function loadAvailableSectionsLegacy() {
     try {
       const response = await fetch(config.ajaxUrl, {
         method: "POST",
@@ -826,22 +877,104 @@
 
       if (data.success) {
         state.availableSections = data.data;
+        state.sectionsBySource = null; // No hay agrupamiento
         console.log("Secciones Twig disponibles:", state.availableSections);
         renderSectionsList();
       } else {
         throw new Error("Error loading available sections");
       }
     } catch (error) {
-      console.error("Error loading sections:", error);
+      console.error("Error loading sections (legacy):", error);
       throw error;
     }
   }
 
+  async function loadAvailableSections() {
+    try {
+      // Intentar cargar secciones agrupadas por fuente
+      const response = await fetch(config.ajaxUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          action: "juzt_get_sections_by_source", // ← NUEVO endpoint
+          nonce: config.nonce,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success && data.data.sections_by_source) {
+        // Guardar secciones agrupadas
+        state.sectionsBySource = data.data.sections_by_source;
+
+        // También mantener lista plana para compatibilidad
+        state.availableSections = {};
+        Object.values(state.sectionsBySource).forEach((source) => {
+          source.sections.forEach((section) => {
+            state.availableSections[section.id] = {
+              ...section,
+              source: source.id,
+              source_name: source.name,
+            };
+          });
+        });
+
+        console.log("Secciones por fuente:", state.sectionsBySource);
+        console.log("Secciones planas:", state.availableSections);
+        renderSectionsList();
+      } else {
+        // Fallback: cargar con endpoint antiguo
+        console.warn("Usando endpoint antiguo de secciones");
+        await loadAvailableSectionsLegacy();
+      }
+    } catch (error) {
+      console.error("Error loading sections:", error);
+      // Fallback
+      await loadAvailableSectionsLegacy();
+    }
+  }
+
   // ==========================================
-  // CARGAR SCHEMAS DE SECCIONES
+  // CARGAR SCHEMAS DE SECCIONES - ACTUALIZADO
   // ==========================================
 
   async function loadSectionSchemas() {
+    try {
+      // Intentar cargar schemas de todas las fuentes
+      const response = await fetch(config.ajaxUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          action: "get_all_section_schemas", // ← NUEVO endpoint
+          nonce: config.nonce,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        state.sectionSchemas = data.data;
+        console.log(
+          "Esquemas de secciones (todas las fuentes):",
+          state.sectionSchemas
+        );
+        console.log("Schemas cargados:", Object.keys(state.sectionSchemas));
+      } else {
+        console.warn("Usando endpoint legacy de schemas");
+        await loadSectionSchemasLegacy();
+      }
+    } catch (error) {
+      console.error("Error loading schemas:", error);
+      await loadSectionSchemasLegacy();
+    }
+  }
+
+  // Fallback: método anterior (solo tema)
+  async function loadSectionSchemasLegacy() {
     try {
       const response = await fetch(config.ajaxUrl, {
         method: "POST",
@@ -858,16 +991,15 @@
 
       if (data.success) {
         state.sectionSchemas = data.data;
-        console.log("Esquemas de secciones:", state.sectionSchemas);
+        console.log("Esquemas de secciones (legacy):", state.sectionSchemas);
       } else {
         throw new Error("Error loading section schemas");
       }
     } catch (error) {
-      console.error("Error loading schemas:", error);
+      console.error("Error loading schemas (legacy):", error);
       throw error;
     }
   }
-
   // ==========================================
   // CARGAR SCHEMA DE SETTINGS GENERALES - NUEVO
   // ==========================================
@@ -1313,6 +1445,116 @@
 
     dom.templatesList.innerHTML = "";
 
+    // Si hay templates agrupados, usar ese formato
+    if (state.templatesBySource) {
+      renderTemplatesListGrouped();
+    } else {
+      // Fallback: lista simple
+      renderTemplatesListSimple();
+    }
+  }
+
+  function renderTemplatesListGrouped() {
+    if (
+      !state.templatesBySource ||
+      Object.keys(state.templatesBySource).length === 0
+    ) {
+      dom.templatesList.innerHTML =
+        '<div class="js-empty">No templates available</div>';
+      return;
+    }
+
+    // Orden de renderizado: theme, extensiones, core
+    const order = ["theme"];
+    const extensionSources = Object.keys(state.templatesBySource).filter(
+      (s) => s !== "theme" && s !== "core"
+    );
+    const finalOrder = [...order, ...extensionSources, "core"];
+
+    let html = "";
+
+    for (const sourceId of finalOrder) {
+      if (!state.templatesBySource[sourceId]) {
+        continue;
+      }
+
+      const source = state.templatesBySource[sourceId];
+      const templates = source.templates || [];
+
+      if (templates.length === 0) {
+        continue;
+      }
+
+      // Determinar badge
+      let badgeClass = "js-badge-extension";
+      let badgeText = "EXT";
+
+      if (sourceId === "theme") {
+        badgeClass = "js-badge-theme";
+        badgeText = "THEME";
+      } else if (sourceId === "core") {
+        badgeClass = "js-badge-core";
+        badgeText = "CORE";
+      }
+
+      // Grupo de templates
+      html += `
+      <div class="js-templates-source">
+        <div class="js-source-header">
+          <span class="js-source-icon">📄</span>
+          <span class="js-source-name">${escapeHtml(source.name)}</span>
+          <span class="js-source-count">(${templates.length})</span>
+        </div>
+    `;
+
+      // Templates del grupo
+      templates.forEach((template) => {
+        const isActive =
+          state.selectedTemplate &&
+          template.id === state.selectedTemplate._originalId;
+
+        html += `
+        <div class="js-list-item js-template-item ${
+          isActive ? "active" : ""
+        }" data-id="${template.id}">
+          <div class="js-template-info">
+            <div class="js-template-name">
+              ${escapeHtml(template.name)}
+              <span class="js-section-badge ${badgeClass}">${badgeText}</span>
+            </div>
+            <div class="js-template-meta">
+              <span>${template.sections_count || 0} sections</span>
+              ${
+                template.post_type
+                  ? `<span class="js-post-type-badge">${escapeHtml(
+                      template.post_type
+                    )}</span>`
+                  : ""
+              }
+            </div>
+            ${
+              template.description
+                ? `<div class="js-template-description">${escapeHtml(
+                    template.description
+                  )}</div>`
+                : ""
+            }
+          </div>
+        </div>
+      `;
+      });
+
+      html += "</div>";
+    }
+
+    dom.templatesList.innerHTML = html;
+
+    // Agregar estilos si no existen
+    addTemplatesListStyles();
+  }
+
+  // Renderizar templates sin agrupamiento (fallback)
+  function renderTemplatesListSimple() {
     if (!state.templates || Object.keys(state.templates).length === 0) {
       dom.templatesList.innerHTML =
         '<div class="js-empty">No templates available</div>';
@@ -1342,6 +1584,73 @@
     });
   }
 
+  // Agregar estilos para templates agrupados
+  function addTemplatesListStyles() {
+    if (document.getElementById("juzt-templates-grouped-styles")) return;
+
+    const styles = document.createElement("style");
+    styles.id = "juzt-templates-grouped-styles";
+    styles.textContent = `
+    .js-templates-source {
+      margin-bottom: 20px;
+    }
+    
+    .js-template-item {
+      margin-left: 8px;
+      margin-bottom: 6px;
+      padding: 10px 12px;
+      border-left: 2px solid transparent;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .js-template-item:hover {
+      border-left-color: #0073aa;
+      background: #f9f9f9;
+    }
+    
+    .js-template-item.active {
+      background: #e5f5fa;
+      border-left-color: #0073aa;
+    }
+    
+    .js-template-name {
+      font-weight: 600;
+      font-size: 13px;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    
+    .js-template-meta {
+      font-size: 11px;
+      color: #666;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    
+    .js-post-type-badge {
+      background: #f0f0f1;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    
+    .js-template-description {
+      font-size: 11px;
+      color: #666;
+      margin-top: 4px;
+      line-height: 1.3;
+    }
+  `;
+
+    document.head.appendChild(styles);
+  }
+
   // ==========================================
   // RENDERIZAR LISTA DE SECCIONES
   // ==========================================
@@ -1351,6 +1660,194 @@
 
     dom.sectionsList.innerHTML = "";
 
+    // Si hay secciones agrupadas, usar ese formato
+    if (state.sectionsBySource) {
+      renderSectionsListGrouped();
+    } else {
+      // Fallback: lista simple
+      renderSectionsListSimple();
+    }
+  }
+
+  // Renderizar secciones agrupadas por fuente
+  function renderSectionsListGrouped() {
+    if (
+      !state.sectionsBySource ||
+      Object.keys(state.sectionsBySource).length === 0
+    ) {
+      dom.sectionsList.innerHTML =
+        '<div class="js-empty">No Twig sections available</div>';
+      return;
+    }
+
+    // Orden de renderizado: theme, extensiones, core
+    const order = ["theme"];
+    const extensionSources = Object.keys(state.sectionsBySource).filter(
+      (s) => s !== "theme" && s !== "core"
+    );
+    const finalOrder = [...order, ...extensionSources, "core"];
+
+    let html = "";
+
+    for (const sourceId of finalOrder) {
+      if (!state.sectionsBySource[sourceId]) {
+        continue;
+      }
+
+      const source = state.sectionsBySource[sourceId];
+      const sections = source.sections || [];
+
+      if (sections.length === 0) {
+        continue;
+      }
+
+      // Determinar badge
+      let badgeClass = "js-badge-extension";
+      let badgeText = "EXT";
+
+      if (sourceId === "theme") {
+        badgeClass = "js-badge-theme";
+        badgeText = "THEME";
+      } else if (sourceId === "core") {
+        badgeClass = "js-badge-core";
+        badgeText = "CORE";
+      }
+
+      // Grupo de secciones
+      html += `
+      <div class="js-sections-source">
+        <div class="js-source-header">
+          <span class="js-source-icon">📦</span>
+          <span class="js-source-name">${escapeHtml(source.name)}</span>
+          <span class="js-source-count">(${sections.length})</span>
+        </div>
+    `;
+
+      // Secciones del grupo
+      sections.forEach((section) => {
+        const hasSchema = state.sectionSchemas[section.id] ? true : false;
+        const schemaIndicator = hasSchema ? "⚙️" : "📄";
+
+        html += `
+        <div class="js-list-item js-section-item" data-id="${
+          section.id
+        }" title="${escapeHtml(
+          section.description || "Section " + section.name
+        )}">
+          <div class="js-section-info">
+            <div class="js-section-name">
+              <span class="js-section-indicator">${schemaIndicator}</span>
+              ${escapeHtml(section.name)}
+              <span class="js-section-badge ${badgeClass}">${badgeText}</span>
+            </div>
+            ${
+              section.description
+                ? `<div class="js-section-description">${escapeHtml(
+                    section.description
+                  )}</div>`
+                : ""
+            }
+          </div>
+        </div>
+      `;
+      });
+
+      html += "</div>";
+    }
+
+    dom.sectionsList.innerHTML = html;
+
+    // Agregar estilos si no existen
+    addSectionsListStyles();
+  }
+
+  function addSectionsListStyles() {
+    if (document.getElementById("juzt-sections-grouped-styles")) return;
+
+    const styles = document.createElement("style");
+    styles.id = "juzt-sections-grouped-styles";
+    styles.textContent = `
+    .js-sections-source {
+      margin-bottom: 20px;
+    }
+    
+    .js-source-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      background: #f7f7f7;
+      border-left: 3px solid #0073aa;
+      font-weight: 600;
+      font-size: 13px;
+      margin-bottom: 8px;
+      border-radius: 3px;
+    }
+    
+    .js-source-icon {
+      font-size: 16px;
+    }
+    
+    .js-source-name {
+      flex: 1;
+    }
+    
+    .js-source-count {
+      font-size: 11px;
+      color: #666;
+      font-weight: 400;
+    }
+    
+    .js-section-item {
+      margin-left: 8px;
+      margin-bottom: 6px;
+      padding: 10px 12px;
+      border-left: 2px solid transparent;
+    }
+    
+    .js-section-item:hover {
+      border-left-color: #0073aa;
+      background: #f9f9f9;
+    }
+    
+    .js-section-badge {
+      font-size: 9px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 3px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      margin-left: 6px;
+    }
+    
+    .js-badge-theme {
+      background: #00a32a;
+      color: #fff;
+    }
+    
+    .js-badge-core {
+      background: #646970;
+      color: #fff;
+    }
+    
+    .js-badge-extension {
+      background: #9b51e0;
+      color: #fff;
+    }
+    
+    .js-section-description {
+      font-size: 11px;
+      color: #666;
+      margin-top: 4px;
+      line-height: 1.3;
+    }
+  `;
+
+    document.head.appendChild(styles);
+  }
+
+  // Renderizar secciones sin agrupamiento (fallback)
+  function renderSectionsListSimple() {
     if (
       !state.availableSections ||
       Object.keys(state.availableSections).length === 0
@@ -2377,7 +2874,9 @@
               .map(
                 (pt) =>
                   `<option value="${escapeHtml(pt.name)}" ${
-                    state.selectedTemplate.post_type === pt.name ? "selected" : ""
+                    state.selectedTemplate.post_type === pt.name
+                      ? "selected"
+                      : ""
                   }>${escapeHtml(pt.label)}</option>`
               )
               .join("")}

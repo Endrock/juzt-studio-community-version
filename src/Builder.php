@@ -62,6 +62,13 @@ class Builder
 
         add_action('wp_ajax_get_attachment_data', [$this, 'ajax_get_attachment_data']);
         add_action('wp_ajax_get_post_types', [$this, 'ajax_get_post_types']);
+
+        add_action('wp_ajax_juzt_get_sections_by_source', [$this, 'ajax_get_sections_by_source']);
+        add_action('wp_ajax_juzt_get_all_sections', [$this, 'ajax_get_all_sections']);
+
+        add_action('wp_ajax_get_all_section_schemas', [$this, 'ajax_get_all_section_schemas']);
+
+        add_action('wp_ajax_get_templates_by_source', [$this, 'ajax_get_templates_by_source']);
     }
 
     /**
@@ -109,72 +116,37 @@ class Builder
     }
 
     /**
-     * Endpoint AJAX para obtener secciones disponibles (ahora busca templates Twig)
+     * Endpoint AJAX para obtener secciones disponibles - ACTUALIZADO para usar Registry
      */
     public function ajax_get_sections()
     {
         check_ajax_referer('sections_builder_nonce', 'nonce');
 
+        $core = \Juztstack\JuztStudio\Community\Core::get_instance();
+
+        if (!$core || !isset($core->extension_registry)) {
+            wp_send_json_success([]);
+            exit;
+        }
+
+        $all_sections = $core->extension_registry->get_all_sections();
         $sections = [];
 
-        // Buscar templates Twig en views/sections/
-        $views_sections_dir = get_template_directory() . '/views/sections';
-
-        // Verificar configuración personalizada
-        if (current_theme_supports('sections-builder')) {
-            $config = get_theme_support('sections-builder');
-            if (is_array($config) && !empty($config[0]) && isset($config[0]['views_sections_directory'])) {
-                $views_sections_dir = get_template_directory() . '/' . $config[0]['views_sections_directory'];
-            }
+        foreach ($all_sections as $section_id => $section_data) {
+            $sections[$section_id] = [
+                'id' => $section_id,
+                'name' => $section_data['name'] ?? ucfirst(str_replace('-', ' ', $section_id)),
+                'description' => $section_data['description'] ?? '',
+                'category' => $section_data['category'] ?? 'general',
+                'icon' => $section_data['icon'] ?? 'admin-generic',
+                'template_file' => basename($section_data['twig_file'] ?? ''),
+                'template_path' => $section_data['twig_file'] ?? '',
+                'has_schema' => !empty($section_data['schema_file']),
+                'schema_path' => $section_data['schema_file'] ?? '',
+                'source' => $section_data['source'] ?? 'theme',
+                'source_name' => $section_data['source_name'] ?? 'Theme'
+            ];
         }
-
-        error_log('=== DEBUG SECCIONES ===');
-        error_log('Buscando templates Twig en: ' . $views_sections_dir);
-        error_log('¿Directorio existe? ' . (is_dir($views_sections_dir) ? 'SÍ' : 'NO'));
-
-        if (is_dir($views_sections_dir)) {
-            $files = glob($views_sections_dir . '/*.twig');
-            error_log('Archivos .twig encontrados: ' . count($files));
-
-            foreach ($files as $file) {
-                $section_id = basename($file, '.twig');
-
-                // Ignorar archivos que comienzan con _ (parciales, helpers, etc)
-                if (strpos($section_id, '_') === 0) {
-                    continue;
-                }
-
-                // Debug: verificar existencia de esquema
-                $has_schema = $this->section_schema_exists($section_id);
-                $schema_path = $this->get_schema_path($section_id);
-
-                error_log("Procesando sección: $section_id");
-                error_log("  - Archivo Twig: $file");
-                error_log("  - Ruta esquema esperada: $schema_path");
-                error_log("  - ¿Esquema existe? " . ($has_schema ? 'SÍ' : 'NO'));
-
-                // Obtener información del esquema si existe
-                $schema_info = $this->get_section_schema_info($section_id);
-
-                $sections[$section_id] = [
-                    'id' => $section_id,
-                    'name' => $schema_info['name'] ?? ucfirst(str_replace('-', ' ', $section_id)),
-                    'description' => $schema_info['description'] ?? '',
-                    'category' => $schema_info['category'] ?? 'general',
-                    'icon' => $schema_info['icon'] ?? 'admin-generic',
-                    'template_file' => basename($file),
-                    'template_path' => $file,
-                    'has_schema' => $has_schema,
-                    'schema_path' => $schema_path,
-                    'source' => 'theme'
-                ];
-            }
-        } else {
-            error_log('ERROR: El directorio de vistas no existe: ' . $views_sections_dir);
-        }
-
-        error_log('Total secciones encontradas: ' . count($sections));
-        error_log('=== FIN DEBUG SECCIONES ===');
 
         wp_send_json_success($sections);
         exit;
@@ -633,7 +605,7 @@ class Builder
     }
 
     /**
-     * Endpoint AJAX para obtener una plantilla específica
+     * Endpoint AJAX para obtener una plantilla específica - ACTUALIZADO
      */
     public function ajax_get_template()
     {
@@ -646,7 +618,40 @@ class Builder
             exit;
         }
 
-        // Buscar en el tema
+        error_log("=== LOADING TEMPLATE: {$template_name} ===");
+
+        // NUEVO: Intentar cargar desde el Registry primero
+        $core = \Juztstack\JuztStudio\Community\Core::get_instance();
+
+        if ($core && isset($core->extension_registry)) {
+            $all_templates = $core->extension_registry->get_all_templates();
+
+            if (isset($all_templates[$template_name])) {
+                $template_data = $all_templates[$template_name];
+                $json_file = $template_data['json_file'] ?? null;
+
+                error_log("Template found in registry: {$json_file}");
+
+                if ($json_file && file_exists($json_file)) {
+                    $json_content = file_get_contents($json_file);
+                    $template_json = json_decode($json_content, true);
+
+                    if (json_last_error() === JSON_ERROR_NONE) {
+                        error_log("✅ Template loaded successfully from: " . $template_data['source']);
+                        wp_send_json_success($template_json);
+                        exit;
+                    } else {
+                        error_log("❌ JSON decode error: " . json_last_error_msg());
+                    }
+                } else {
+                    error_log("❌ JSON file not found: {$json_file}");
+                }
+            }
+        }
+
+        // FALLBACK: Buscar en el tema (método original)
+        error_log("Fallback: searching in theme directory");
+
         $theme_dir = get_template_directory() . '/templates';
 
         if (current_theme_supports('sections-builder')) {
@@ -658,8 +663,11 @@ class Builder
 
         $template_file = $theme_dir . '/' . $template_name . '.json';
 
+        error_log("Looking for template in: {$template_file}");
+
         if (!file_exists($template_file)) {
-            wp_send_json_error(['message' => 'Plantilla no encontrada']);
+            error_log("❌ Template not found in theme");
+            wp_send_json_error(['message' => 'Plantilla no encontrada: ' . $template_name]);
             exit;
         }
 
@@ -667,13 +675,12 @@ class Builder
         $template_data = json_decode($json_content, true);
 
         if (json_last_error() !== JSON_ERROR_NONE) {
+            error_log("❌ JSON decode error: " . json_last_error_msg());
             wp_send_json_error(['message' => 'Error al decodificar el JSON de la plantilla']);
             exit;
         }
 
-        // NO adaptar aquí - el JSON ya viene en el formato correcto
-        // El JavaScript se encargará de asegurar la estructura
-
+        error_log("✅ Template loaded from theme");
         wp_send_json_success($template_data);
         exit;
     }
@@ -757,7 +764,89 @@ class Builder
     }
 
     /**
-     * Endpoint AJAX para guardar una plantilla (actualizado para Timber/Twig)
+     * Determinar dónde guardar el template (tema o extensión) - NUEVO
+     * 
+     * @param string $template_name
+     * @return array ['type' => 'theme'|'extension', 'dir' => '/path/to/templates', 'root_dir' => '/root', 'name' => 'Source Name']
+     */
+    private function determine_template_save_location($template_name)
+    {
+        $core = \Juztstack\JuztStudio\Community\Core::get_instance();
+
+        // Intentar encontrar el template en el Registry
+        if ($core && isset($core->extension_registry)) {
+            $all_templates = $core->extension_registry->get_all_templates();
+
+            if (isset($all_templates[$template_name])) {
+                $template_data = $all_templates[$template_name];
+                $source = $template_data['source'];
+
+                error_log("Template exists in registry, source: {$source}");
+
+                // Si es del tema
+                if ($source === 'theme') {
+                    $theme_dir = get_template_directory() . '/templates';
+
+                    if (current_theme_supports('sections-builder')) {
+                        $config = get_theme_support('sections-builder');
+                        if (is_array($config) && !empty($config[0]) && isset($config[0]['templates_directory'])) {
+                            $theme_dir = get_template_directory() . '/' . $config[0]['templates_directory'];
+                        }
+                    }
+
+                    return [
+                        'type' => 'theme',
+                        'dir' => $theme_dir,
+                        'root_dir' => get_template_directory(),
+                        'name' => 'Theme',
+                    ];
+                }
+
+                // Si es de una extensión
+                $extensions = $core->extension_registry->get_extensions();
+
+                if (isset($extensions[$source])) {
+                    $ext_config = $extensions[$source];
+                    $templates_dir = $ext_config['paths']['templates_dir'] ?? null;
+
+                    if ($templates_dir && is_dir($templates_dir)) {
+                        // Obtener root dir de la extensión (subir un nivel desde templates/)
+                        $root_dir = dirname($templates_dir);
+
+                        return [
+                            'type' => 'extension',
+                            'dir' => $templates_dir,
+                            'root_dir' => $root_dir,
+                            'name' => $ext_config['name'] ?? $source,
+                            'source_id' => $source,
+                        ];
+                    }
+                }
+            }
+        }
+
+        // Default: guardar en el tema
+        error_log("Template not found in registry, defaulting to theme");
+
+        $theme_dir = get_template_directory() . '/templates';
+
+        if (current_theme_supports('sections-builder')) {
+            $config = get_theme_support('sections-builder');
+            if (is_array($config) && !empty($config[0]) && isset($config[0]['templates_directory'])) {
+                $theme_dir = get_template_directory() . '/' . $config[0]['templates_directory'];
+            }
+        }
+
+        return [
+            'type' => 'theme',
+            'dir' => $theme_dir,
+            'root_dir' => get_template_directory(),
+            'name' => 'Theme',
+        ];
+    }
+
+    /**
+     * Endpoint AJAX para guardar una plantilla - ACTUALIZADO para extensiones
      */
     public function ajax_save_template()
     {
@@ -781,7 +870,7 @@ class Builder
             exit;
         }
 
-        // Si los datos vienen como string JSON, convertirlos a array
+        // Decodificar datos
         if (is_string($template_data)) {
             $template_data = json_decode(stripslashes($template_data), true);
 
@@ -797,19 +886,14 @@ class Builder
         // Normalizar estructura
         $template_data = $this->sanitize_template_data($template_data);
 
-        // Determinar dónde guardar
-        $theme_dir = get_template_directory() . '/templates';
+        // NUEVO: Determinar dónde guardar (tema o extensión)
+        $save_location = $this->determine_template_save_location($template_name);
 
-        if (current_theme_supports('sections-builder')) {
-            $config = get_theme_support('sections-builder');
-            if (is_array($config) && !empty($config[0]) && isset($config[0]['templates_directory'])) {
-                $theme_dir = get_template_directory() . '/' . $config[0]['templates_directory'];
-            }
-        }
+        error_log('Save location determined: ' . $save_location['type'] . ' (' . $save_location['dir'] . ')');
 
         // Asegurarse de que el directorio existe
-        if (!is_dir($theme_dir)) {
-            $dir_created = wp_mkdir_p($theme_dir);
+        if (!is_dir($save_location['dir'])) {
+            $dir_created = wp_mkdir_p($save_location['dir']);
             if (!$dir_created) {
                 wp_send_json_error(['message' => 'Could not create templates directory']);
                 exit;
@@ -817,13 +901,13 @@ class Builder
         }
 
         // Verificar permisos de escritura
-        if (!is_writable($theme_dir)) {
-            wp_send_json_error(['message' => 'Directory is not writable']);
+        if (!is_writable($save_location['dir'])) {
+            wp_send_json_error(['message' => 'Directory is not writable: ' . $save_location['dir']]);
             exit;
         }
 
         // Guardar JSON
-        $template_file = $theme_dir . '/' . $template_name . '.json';
+        $template_file = $save_location['dir'] . '/' . $template_name . '.json';
         $json_content = json_encode($template_data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
         $result = file_put_contents($template_file, $json_content);
@@ -841,16 +925,21 @@ class Builder
             'message' => 'Template saved successfully',
             'file_path' => $template_file,
             'bytes_written' => $result,
+            'location_type' => $save_location['type'],
+            'location_name' => $save_location['name'],
         ];
 
-        // NUEVO: Crear archivos PHP y Twig si se solicitó
-        if ($create_files) {
+        // NUEVO: Crear archivos PHP y Twig solo si es del TEMA y se solicitó
+        // Para extensiones, no crear archivos automáticamente
+        if ($create_files && $save_location['type'] === 'theme') {
             $files_created = $this->create_template_files($template_name, $template_data);
             $response_data['files_created'] = $files_created;
+        } elseif ($create_files && $save_location['type'] === 'extension') {
+            $response_data['note'] = 'Files not created automatically for extensions. Manage them manually in the extension directory.';
         }
 
         // Commit con Git si está disponible
-        $commit = apply_filters('wpvtp_queue_commit', null, get_template_directory(), 'Update from Section builder: ' . $template_name);
+        $commit = apply_filters('wpvtp_queue_commit', null, $save_location['root_dir'], 'Update from Section builder: ' . $template_name);
         if ($commit) {
             $response_data['commit'] = $commit;
         }
@@ -1111,6 +1200,7 @@ class Builder
             'ajaxUrl' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('sections_builder_nonce'),
             'timberEnabled' => class_exists('Timber\\Timber'),
+            'adminUrl' => admin_url(),
         ]);
     }
 
@@ -2020,5 +2110,247 @@ TWIG;
         }
 
         wp_send_json_success($result);
+    }
+
+    /**
+     * Obtener secciones agrupadas por fuente - NUEVO
+     */
+    public function get_sections_by_source()
+    {
+        $core = \Juztstack\JuztStudio\Community\Core::get_instance();
+
+        if (!$core || !isset($core->extension_registry)) {
+            return [];
+        }
+
+        $grouped = [];
+        $extensions = $core->extension_registry->get_extensions();
+
+        // Nombres legibles
+        $source_names = [
+            'theme' => 'Tema Activo',
+            'core' => 'Juzt Studio Core',
+        ];
+
+        foreach ($extensions as $ext_id => $ext_config) {
+            $source_names[$ext_id] = $ext_config['name'] ?? $ext_id;
+        }
+
+        $all_sections = $core->extension_registry->get_all_sections();
+
+        foreach ($all_sections as $section_id => $section_data) {
+            $source = $section_data['source'];
+            $source_name = $source_names[$source] ?? $source;
+
+            if (!isset($grouped[$source])) {
+                $grouped[$source] = [
+                    'id' => $source,
+                    'name' => $source_name,
+                    'sections' => [],
+                ];
+            }
+
+            $grouped[$source]['sections'][] = [
+                'id' => $section_id,
+                'name' => $section_data['name'] ?? ucfirst(str_replace('-', ' ', $section_id)),
+                'category' => $section_data['category'] ?? 'general',
+                'icon' => $section_data['icon'] ?? 'dashicons-layout',
+                'description' => $section_data['description'] ?? '',
+                'preview' => $section_data['preview'] ?? null,
+            ];
+        }
+
+        return $grouped;
+    }
+
+    /**
+     * AJAX: Obtener secciones agrupadas - NUEVO
+     */
+    public function ajax_get_sections_by_source()
+    {
+        check_ajax_referer('sections_builder_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'Unauthorized'], 403);
+        }
+
+        $sections = $this->get_sections_by_source();
+
+        wp_send_json_success([
+            'sections_by_source' => $sections,
+        ]);
+    }
+
+    /**
+     * AJAX: Obtener todas las secciones (formato plano) - NUEVO
+     */
+    public function ajax_get_all_sections()
+    {
+        check_ajax_referer('sections_builder_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'Unauthorized'], 403);
+        }
+
+        $core = \Juztstack\JuztStudio\Community\Core::get_instance();
+
+        if (!$core || !isset($core->extension_registry)) {
+            wp_send_json_success(['sections' => []]);
+            return;
+        }
+
+        $all_sections = $core->extension_registry->get_all_sections();
+        $formatted = [];
+
+        foreach ($all_sections as $section_id => $section_data) {
+            $formatted[] = [
+                'id' => $section_id,
+                'name' => $section_data['name'] ?? ucfirst(str_replace('-', ' ', $section_id)),
+                'category' => $section_data['category'] ?? 'general',
+                'icon' => $section_data['icon'] ?? 'dashicons-layout',
+                'source' => $section_data['source'],
+                'source_name' => $section_data['source_name'] ?? $section_data['source'],
+                'description' => $section_data['description'] ?? '',
+                'preview' => $section_data['preview'] ?? null,
+            ];
+        }
+
+        wp_send_json_success(['sections' => $formatted]);
+    }
+
+    /**
+     * AJAX: Obtener todos los schemas (tema + extensiones) - NUEVO
+     */
+    public function ajax_get_all_section_schemas()
+    {
+        check_ajax_referer('sections_builder_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'Unauthorized'], 403);
+        }
+
+        $core = \Juztstack\JuztStudio\Community\Core::get_instance();
+
+        if (!$core || !isset($core->extension_registry)) {
+            // Fallback: schemas solo del tema
+            $this->ajax_get_section_schemas();
+            return;
+        }
+
+        $all_sections = $core->extension_registry->get_all_sections();
+        $schemas = [];
+
+        foreach ($all_sections as $section_id => $section_data) {
+            if (empty($section_data['schema_file'])) {
+                continue;
+            }
+
+            $schema_file = $section_data['schema_file'];
+
+            if (!file_exists($schema_file)) {
+                continue;
+            }
+
+            // Parsear el schema
+            $schema_parsed = $this->parse_section_schema($section_id, $schema_file);
+
+            if ($schema_parsed) {
+                $schemas[$section_id] = [
+                    'id' => $section_id,
+                    'name' => $schema_parsed['name'],
+                    'schema' => $schema_parsed,
+                    'file' => $schema_file,
+                    'source' => $section_data['source'] ?? 'unknown',
+                    'source_name' => $section_data['source_name'] ?? 'Unknown'
+                ];
+            }
+        }
+
+        error_log('=== ALL SCHEMAS FROM REGISTRY ===');
+        error_log('Total schemas found: ' . count($schemas));
+        error_log('Schema IDs: ' . implode(', ', array_keys($schemas)));
+
+        wp_send_json_success($schemas);
+    }
+
+    /**
+     * AJAX: Obtener templates agrupados por fuente
+     */
+    public function ajax_get_templates_by_source()
+    {
+        check_ajax_referer('sections_builder_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'Unauthorized'], 403);
+        }
+
+        $core = \Juztstack\JuztStudio\Community\Core::get_instance();
+
+        if (!$core || !isset($core->extension_registry)) {
+            // Fallback: solo templates del tema
+            $this->ajax_get_templates();
+            return;
+        }
+
+        $grouped = [];
+        $extensions = $core->extension_registry->get_extensions();
+
+        // Nombres legibles
+        $source_names = [
+            'theme' => 'Tema Activo',
+            'core' => 'Juzt Studio Core',
+        ];
+
+        foreach ($extensions as $ext_id => $ext_config) {
+            $source_names[$ext_id] = $ext_config['name'] ?? $ext_id;
+        }
+
+        $all_templates = $core->extension_registry->get_all_templates();
+
+        error_log('=== TEMPLATES FROM REGISTRY ===');
+        error_log('Total templates: ' . count($all_templates));
+
+        foreach ($all_templates as $template_id => $template_data) {
+            $source = $template_data['source'];
+            $source_name = $source_names[$source] ?? $source;
+
+            if (!isset($grouped[$source])) {
+                $grouped[$source] = [
+                    'id' => $source,
+                    'name' => $source_name,
+                    'templates' => [],
+                ];
+            }
+
+            // Leer el contenido del template JSON
+            $json_file = $template_data['json_file'] ?? null;
+            $sections_count = 0;
+
+            if ($json_file && file_exists($json_file)) {
+                $content = file_get_contents($json_file);
+                $json_data = json_decode($content, true);
+
+                if (json_last_error() === JSON_ERROR_NONE) {
+                    $sections_count = count($json_data['sections'] ?? []);
+                }
+            }
+
+            $grouped[$source]['templates'][] = [
+                'id' => $template_id,
+                'name' => $template_data['name'] ?? ucfirst(str_replace('-', ' ', $template_id)),
+                'description' => $template_data['description'] ?? '',
+                'path' => $json_file ?? '',
+                'sections_count' => $sections_count,
+                'post_type' => $template_data['post_type'] ?? '',
+            ];
+
+            error_log("Template: {$template_id} (source: {$source})");
+        }
+
+        error_log('Grouped templates: ' . count($grouped) . ' sources');
+
+        wp_send_json_success([
+            'templates_by_source' => $grouped,
+        ]);
     }
 }
