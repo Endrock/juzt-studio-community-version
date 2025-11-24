@@ -147,14 +147,16 @@ class Core
      */
     public function init()
     {
-        // 1. Inicializar Extension Registry PRIMERO
+        // 1. Inicializar Extension Registry
         $this->extension_registry = new ExtensionRegistry();
 
-        // 2. Permitir que extensiones se registren
-        do_action('juzt_register_extensions', $this->extension_registry);
+        // 2. Auto-detectar y registrar extensiones
+        error_log('🔍 Starting auto-discovery...');
+        $this->extension_registry->auto_discover_extensions();
 
         // 3. Construir índice unificado
         $this->extension_registry->build_index();
+        error_log('✅ Registry index built');
 
         // 4. Cargar componentes principales
         $this->load_components();
@@ -168,11 +170,10 @@ class Core
         // 7. Registrar hooks de invalidación de cache
         $this->register_cache_hooks();
 
-        // 8. Hacer accesible la instancia globalmente para compatibilidad
+        // 8. Hacer accesible la instancia globalmente
         global $sections_builder_theme;
         $sections_builder_theme = $this;
     }
-
     public function find_section_file($section)
     {
         return $this->sections->find_section_file($section);

@@ -360,7 +360,43 @@
   }
 
   // ==========================================
-  // AÑADIR BLOQUE
+  // OBTENER VALORES POR DEFECTO DE BLOQUE - NUEVO
+  // ==========================================
+
+  function getBlockDefaultSettings(sectionId, blockType) {
+    const schema = state.sectionSchemas[sectionId]?.schema;
+
+    if (!schema || !schema.blocks || !schema.blocks[blockType]) {
+      console.log(
+        `No schema found for block: ${blockType} in section: ${sectionId}`
+      );
+      return {};
+    }
+
+    const blockDefinition = schema.blocks[blockType];
+    const properties = blockDefinition.properties || {};
+    const defaultSettings = {};
+
+    Object.entries(properties).forEach(([key, property]) => {
+      // Aplicar valor por defecto si existe
+      if (property.default !== undefined) {
+        defaultSettings[key] = property.default;
+      } else {
+        // Si no hay default, usar valor apropiado según el tipo
+        defaultSettings[key] = getDefaultValueByType(property.type);
+      }
+    });
+
+    console.log(
+      `Generated default settings for block ${blockType}:`,
+      defaultSettings
+    );
+
+    return defaultSettings;
+  }
+
+  // ==========================================
+  // AÑADIR BLOQUE - ACTUALIZADO con defaults
   // ==========================================
 
   function addBlock(sectionKey, blockType) {
@@ -382,10 +418,22 @@
 
     console.log(`Adding block type: ${blockType} to section: ${sectionKey}`);
 
-    // Crear nuevo bloque con settings como OBJETO
+    // NUEVO: Obtener valores por defecto del bloque
+    const sectionType = section.section_id;
+    const defaultBlockSettings = getBlockDefaultSettings(
+      sectionType,
+      blockType
+    );
+
+    console.log(
+      `Default settings for block ${blockType}:`,
+      defaultBlockSettings
+    );
+
+    // Crear nuevo bloque con settings por defecto
     const newBlock = {
       type: blockType,
-      settings: {}, // ← OBJETO VACÍO, no array []
+      settings: defaultBlockSettings, // ← Settings con valores por defecto
     };
 
     section.blocks.push(newBlock);
@@ -397,9 +445,9 @@
     schedulePreviewRefresh();
 
     const blockDefinition =
-      state.sectionSchemas[section.section_id]?.schema?.blocks?.[blockType];
+      state.sectionSchemas[sectionType]?.schema?.blocks?.[blockType];
     const blockName = blockDefinition?.name || blockType;
-    showMessage("success", `Block "${blockName}" added`);
+    showMessage("success", `Block "${blockName}" added with default values`);
   }
 
   /**
@@ -2765,6 +2813,62 @@
         settingsKeys: section.settings ? Object.keys(section.settings) : [],
       });
     });
+
+    // NUEVO: Aplicar defaults a secciones existentes que no los tienen
+    Object.keys(state.selectedTemplate.sections).forEach((sectionKey) => {
+      const section = state.selectedTemplate.sections[sectionKey];
+      const sectionId = section.section_id;
+
+      // Obtener schema
+      const schema = state.sectionSchemas[sectionId]?.schema;
+      if (schema && schema.properties) {
+        const properties = schema.properties;
+
+        // Aplicar defaults a settings que no existen
+        Object.entries(properties).forEach(([key, property]) => {
+          if (
+            section.settings[key] === undefined &&
+            property.default !== undefined
+          ) {
+            section.settings[key] = property.default;
+            console.log(
+              `Applied default for ${sectionKey}.settings.${key}:`,
+              property.default
+            );
+          }
+        });
+      }
+
+      // Lo mismo para bloques
+      if (section.blocks && Array.isArray(section.blocks)) {
+        section.blocks.forEach((block, blockIndex) => {
+          const blockType = block.type;
+          const blockSchema = schema?.blocks?.[blockType];
+
+          if (blockSchema && blockSchema.properties) {
+            Object.entries(blockSchema.properties).forEach(
+              ([key, property]) => {
+                if (
+                  block.settings[key] === undefined &&
+                  property.default !== undefined
+                ) {
+                  block.settings[key] = property.default;
+                  console.log(
+                    `Applied default for block ${blockIndex}.settings.${key}:`,
+                    property.default
+                  );
+                }
+              }
+            );
+          }
+        });
+      }
+    });
+
+    console.log(
+      "✅ Timber structure ensured with defaults:",
+      state.selectedTemplate
+    );
   }
 
   // ==========================================
@@ -3205,10 +3309,15 @@
 
     console.log("Adding section:", sectionId, "with ID:", uniqueId);
 
-    // **CRÍTICO: Crear nueva sección con settings como OBJETO, no array**
+    // NUEVO: Obtener valores por defecto del schema
+    const defaultSettings = getSectionDefaultSettings(sectionId);
+
+    console.log(`Default settings for ${sectionId}:`, defaultSettings);
+
+    // **CRÍTICO: Crear nueva sección con settings por defecto**
     state.selectedTemplate.sections[uniqueId] = {
       section_id: sectionId,
-      settings: {}, // ← OBJETO VACÍO, asegurar que no sea array
+      settings: defaultSettings, // ← Settings con valores por defecto
       blocks: [],
     };
 
@@ -3228,12 +3337,70 @@
       "Section added. Settings is object?:",
       !Array.isArray(state.selectedTemplate.sections[uniqueId].settings)
     );
+    console.log(
+      "Settings values:",
+      state.selectedTemplate.sections[uniqueId].settings
+    );
 
     renderTemplateEditor();
     schedulePreviewRefresh();
 
     const sectionName = state.availableSections[sectionId]?.name || sectionId;
-    showMessage("success", `Section "${sectionName}" added`);
+    showMessage(
+      "success",
+      `Section "${sectionName}" added with default values`
+    );
+  }
+
+  // ==========================================
+  // OBTENER VALORES POR DEFECTO DE SECCIÓN - NUEVO
+  // ==========================================
+
+  function getSectionDefaultSettings(sectionId) {
+    const schema = state.sectionSchemas[sectionId]?.schema;
+
+    if (!schema || !schema.properties) {
+      console.log(
+        `No schema found for section: ${sectionId}, using empty settings`
+      );
+      return {};
+    }
+
+    const defaultSettings = {};
+    const properties = schema.properties || {};
+
+    Object.entries(properties).forEach(([key, property]) => {
+      // Aplicar valor por defecto si existe
+      if (property.default !== undefined) {
+        defaultSettings[key] = property.default;
+      } else {
+        // Si no hay default, usar valor apropiado según el tipo
+        defaultSettings[key] = getDefaultValueByType(property.type);
+      }
+    });
+
+    console.log(
+      `Generated default settings for ${sectionId}:`,
+      defaultSettings
+    );
+
+    return defaultSettings;
+  }
+
+  // Helper: Obtener valor por defecto según tipo
+  function getDefaultValueByType(type) {
+    switch (type) {
+      case "number":
+        return 0;
+      case "boolean":
+        return false;
+      case "array":
+        return [];
+      case "object":
+        return {};
+      default:
+        return "";
+    }
   }
 
   // ==========================================

@@ -1494,7 +1494,7 @@ class Builder
     }
 
     /**
-     * AJAX: Preview de template
+     * AJAX: Preview de template - ACTUALIZADO para extensiones
      */
     public function ajax_preview_template()
     {
@@ -1510,28 +1510,73 @@ class Builder
             wp_die('No se especificó template_id', 400);
         }
 
-        // Buscar el archivo de template
-        $theme_dir = get_template_directory() . '/templates';
+        error_log("=== PREVIEW TEMPLATE: {$template_id} ===");
 
-        if (current_theme_supports('sections-builder')) {
-            $config = get_theme_support('sections-builder');
-            if (is_array($config) && !empty($config[0]) && isset($config[0]['templates_directory'])) {
-                $theme_dir = get_template_directory() . '/' . $config[0]['templates_directory'];
+        // NUEVO: Intentar cargar desde el Registry primero
+        $core = \Juztstack\JuztStudio\Community\Core::get_instance();
+        $template_data = null;
+        $template_file = null;
+
+        if ($core && isset($core->extension_registry)) {
+            $all_templates = $core->extension_registry->get_all_templates();
+
+            if (isset($all_templates[$template_id])) {
+                $template_info = $all_templates[$template_id];
+                $template_file = $template_info['json_file'] ?? null;
+
+                error_log("Template found in registry");
+                error_log("Source: " . ($template_info['source'] ?? 'unknown'));
+                error_log("JSON file: " . $template_file);
+
+                if ($template_file && file_exists($template_file)) {
+                    $json_content = file_get_contents($template_file);
+                    $template_data = json_decode($json_content, true);
+
+                    if (json_last_error() === JSON_ERROR_NONE) {
+                        error_log("✅ Template loaded from Registry for preview");
+                    } else {
+                        error_log("❌ JSON decode error: " . json_last_error_msg());
+                        $template_data = null;
+                    }
+                } else {
+                    error_log("❌ JSON file not found: {$template_file}");
+                }
+            } else {
+                error_log("Template not found in registry");
             }
         }
 
-        $template_file = $theme_dir . '/' . $template_id . '.json';
+        // FALLBACK: Buscar en el tema (método original)
+        if (!$template_data) {
+            error_log("Fallback: searching in theme directory");
 
-        if (!file_exists($template_file)) {
-            wp_die('Template no encontrado: ' . $template_id, 404);
-        }
+            $theme_dir = get_template_directory() . '/templates';
 
-        // Cargar el template JSON
-        $json_content = file_get_contents($template_file);
-        $template_data = json_decode($json_content, true);
+            if (current_theme_supports('sections-builder')) {
+                $config = get_theme_support('sections-builder');
+                if (is_array($config) && !empty($config[0]) && isset($config[0]['templates_directory'])) {
+                    $theme_dir = get_template_directory() . '/' . $config[0]['templates_directory'];
+                }
+            }
 
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            wp_die('Error al decodificar el JSON del template', 500);
+            $template_file = $theme_dir . '/' . $template_id . '.json';
+
+            error_log("Looking for template in: {$template_file}");
+
+            if (!file_exists($template_file)) {
+                error_log("❌ Template not found in theme");
+                wp_die('Template no encontrado: ' . $template_id, 404);
+            }
+
+            $json_content = file_get_contents($template_file);
+            $template_data = json_decode($json_content, true);
+
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                error_log("❌ JSON decode error: " . json_last_error_msg());
+                wp_die('Error al decodificar el JSON del template', 500);
+            }
+
+            error_log("✅ Template loaded from theme for preview");
         }
 
         // Renderizar el preview
@@ -1544,7 +1589,6 @@ class Builder
      */
     private function render_template_preview($template_data, $template_id)
     {
-        // HTML básico con estilos para el preview
     ?>
         <!DOCTYPE html>
         <html <?php language_attributes(); ?>>
@@ -1562,9 +1606,6 @@ class Builder
             <style>
                 body {
                     margin: 0;
-                    padding: 20px;
-                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-                    background: #f5f5f5;
                 }
 
                 .preview-header {
@@ -1588,16 +1629,8 @@ class Builder
                 }
 
                 .template-sections {
-                    max-width: 1200px;
+                    max-width: 100%;
                     margin: 0 auto;
-                }
-
-                .section-preview {
-                    background: #fff;
-                    margin-bottom: 20px;
-                    padding: 20px;
-                    border-radius: 4px;
-                    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
                 }
 
                 .section-preview-header {
@@ -1621,19 +1654,6 @@ class Builder
 
         <body>
 
-            <div class="preview-header">
-                <h1>👁️ Preview: <?php echo esc_html($template_data['name'] ?? $template_id); ?></h1>
-                <div class="template-info">
-                    <?php echo esc_html($template_data['description'] ?? 'Sin descripción'); ?> •
-                    <?php echo count($template_data['sections'] ?? []); ?> secciones
-                </div>
-            </div>
-
-            <div class="preview-warning">
-                <strong>💡 Vista Previa Básica:</strong> Esta es una versión simplificada.
-                En <strong>Juzt Studio Pro</strong> tendrás preview en tiempo real con todos los estilos aplicados.
-            </div>
-
             <div class="template-sections">
                 <?php
                 // Verificar si Timber está disponible
@@ -1643,6 +1663,15 @@ class Builder
                     echo '<p>Este preview requiere Timber/Twig para renderizar las secciones correctamente.</p>';
                     echo '</div>';
                 } else {
+                    // Obtener Registry
+                    $core = \Juztstack\JuztStudio\Community\Core::get_instance();
+
+                    if (!$core || !isset($core->extension_registry)) {
+                        echo '<div class="preview-warning">';
+                        echo '<p>⚠️ Registry no disponible. No se pueden cargar secciones de extensiones.</p>';
+                        echo '</div>';
+                    }
+
                     // Renderizar cada sección
                     $sections_order = $template_data['order'] ?? array_keys($template_data['sections'] ?? []);
 
@@ -1655,29 +1684,53 @@ class Builder
                         $section_id = $section['section_id'] ?? $section_key;
 
                         echo '<div class="section-preview">';
-                        echo '<div class="section-preview-header">';
-                        echo 'Sección: ' . esc_html($section_id);
-                        echo '</div>';
 
-                        // Intentar renderizar la sección con Timber
+                        // Intentar renderizar la sección
                         try {
-                            $template_path = 'sections/' . $section_id . '.twig';
+                            // NUEVO: Obtener información de la sección desde el Registry
+                            $section_info = null;
+                            if ($core && isset($core->extension_registry)) {
+                                $section_info = $core->extension_registry->get_section($section_id);
+                            }
 
                             // Preparar contexto para Timber
                             $context = [
                                 'section' => $section,
                             ];
 
-                            // Renderizar con Timber
-                            echo \Timber\Timber::compile($template_path, $context);
+                            // Renderizar la sección
+                            if ($section_info && !empty($section_info['twig_file'])) {
+                                $twig_file = $section_info['twig_file'];
+
+                                error_log("Rendering section from: {$twig_file}");
+
+                                if (file_exists($twig_file)) {
+                                    // Leer el contenido del archivo Twig
+                                    $twig_content = file_get_contents($twig_file);
+
+                                    // Renderizar usando compile_string (funciona con cualquier ruta)
+                                    echo \Timber\Timber::compile_string($twig_content, $context);
+
+                                    error_log("✅ Section rendered successfully: {$section_id}");
+                                } else {
+                                    throw new \Exception("Twig file not found: {$twig_file}");
+                                }
+                            } else {
+                                // Fallback: intentar con ruta relativa (tema)
+                                $template_path = 'sections/' . $section_id . '.twig';
+                                echo \Timber\Timber::compile($template_path, $context);
+                            }
                         } catch (\Exception $e) {
-                            echo '<p style="color: #d63638;">Error al renderizar: ' . esc_html($e->getMessage()) . '</p>';
-                            echo '<details style="margin-top: 10px; font-size: 12px; color: #666;">';
-                            echo '<summary>Ver datos de la sección</summary>';
-                            echo '<pre style="background: #f5f5f5; padding: 10px; overflow: auto;">';
+                            echo '<div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0;">';
+                            echo '<p style="margin: 0 0 10px; color: #856404;"><strong>⚠️ Error al renderizar la sección:</strong> ' . esc_html($section_id) . '</p>';
+                            echo '<p style="margin: 0; font-size: 13px; color: #856404;">' . esc_html($e->getMessage()) . '</p>';
+                            echo '<details style="margin-top: 10px;">';
+                            echo '<summary style="cursor: pointer; font-size: 12px; color: #666;">Ver datos de la sección</summary>';
+                            echo '<pre style="background: #f5f5f5; padding: 10px; overflow: auto; font-size: 11px; margin-top: 10px;">';
                             echo esc_html(json_encode($section, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
                             echo '</pre>';
                             echo '</details>';
+                            echo '</div>';
                         }
 
                         echo '</div>';

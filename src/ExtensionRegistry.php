@@ -67,6 +67,7 @@ class ExtensionRegistry
     {
         // Validar configuración mínima
         if (empty($config['id']) || empty($config['name'])) {
+            error_log("❌ Invalid extension config: missing id or name");
             return false;
         }
 
@@ -74,11 +75,31 @@ class ExtensionRegistry
 
         // Evitar duplicados
         if (isset($this->extensions[$ext_id])) {
+            error_log("⚠️ Extension already registered: {$ext_id}");
             return false;
         }
 
         // Registrar
         $this->extensions[$ext_id] = $config;
+
+        error_log("✅ Extension registered: {$ext_id}");
+        error_log("   - Name: {$config['name']}");
+        error_log("   - Version: " . ($config['version'] ?? 'not specified'));
+        error_log("   - Has assets: " . (empty($config['assets']) ? 'NO' : 'YES'));
+
+        // NUEVO: Registrar assets inmediatamente
+        if (!empty($config['assets'])) {
+            // Si ya pasó wp_enqueue_scripts, cargar directamente
+            if (did_action('wp_enqueue_scripts')) {
+                error_log("⚠️ wp_enqueue_scripts already fired, loading assets directly");
+                $this->load_assets($config);
+            } else {
+                // Si no, registrar en el hook
+                add_action('wp_enqueue_scripts', function () use ($config) {
+                    $this->load_assets($config);
+                }, 20); // Prioridad 20 para después de los assets del tema
+            }
+        }
 
         // Invalidar cache
         $this->clear_cache();
@@ -625,6 +646,155 @@ class ExtensionRegistry
     }
 
     /**
+     * Load Assets - ACTUALIZADO con soporte para Vite
+     */
+    private function load_assets($config)
+    {
+        if (empty($config['assets'])) {
+            error_log("⚠️ No assets defined for extension: " . ($config['id'] ?? 'unknown'));
+            return;
+        }
+
+        $ext_id = $config['id'] ?? 'unknown';
+
+        // Determinar si estamos en modo desarrollo
+        $is_dev_mode = defined('JUZT_EXTENSION_DEVELOPMENT_MODE') && JUZT_EXTENSION_DEVELOPMENT_MODE;
+
+        error_log("=== LOADING ASSETS FOR: {$ext_id} ===");
+        error_log("Development mode: " . ($is_dev_mode ? 'YES' : 'NO'));
+
+        // Seleccionar assets según el modo
+        $assets = $is_dev_mode
+            ? ($config['assets']['development'] ?? [])
+            : ($config['assets']['production'] ?? []);
+
+        if (empty($assets)) {
+            error_log("⚠️ No assets defined for current mode");
+            return;
+        }
+
+        // En modo desarrollo, cargar desde Vite
+        if ($is_dev_mode) {
+            $this->load_vite_assets($config, $assets);
+        }
+        // En producción, cargar assets compilados
+        else {
+            $this->load_production_assets($config, $assets);
+        }
+
+        error_log("=== ASSETS LOADED ===");
+    }
+
+    /**
+     * Cargar assets desde Vite (desarrollo) - NUEVO
+     */
+    private function load_vite_assets($config, $assets)
+    {
+        $ext_id = $config['id'];
+        $vite_server = $config['paths']['vite_dev_server'] ?? 'http://localhost:5173';
+
+        error_log("Loading assets from Vite dev server: {$vite_server}");
+
+        // 1. Cargar el cliente de Vite (necesario para HMR)
+        wp_enqueue_script(
+            "{$ext_id}-vite-client",
+            "{$vite_server}/@vite/client",
+            [],
+            null,
+            false
+        );
+
+        // Marcar como módulo ES
+        add_filter('script_loader_tag', function ($tag, $handle) use ($ext_id) {
+            if (
+                strpos($handle, "{$ext_id}-vite-client") !== false ||
+                strpos($handle, "{$ext_id}-") !== false
+            ) {
+                return str_replace('<script', '<script type="module"', $tag);
+            }
+            return $tag;
+        }, 10, 2);
+
+        // 2. Cargar JS desde Vite
+        if (!empty($assets['js']) && is_array($assets['js'])) {
+            error_log("Loading JS from Vite: " . count($assets['js']));
+
+            foreach ($assets['js'] as $handle => $path) {
+                $full_url = $vite_server . $path;
+
+                error_log("  - Handle: {$handle}");
+                error_log("    URL: {$full_url}");
+
+                wp_enqueue_script(
+                    $handle,
+                    $full_url,
+                    [],
+                    null,
+                    true
+                );
+
+                error_log("    ✅ Enqueued from Vite");
+            }
+        }
+
+        // En desarrollo, CSS se importa desde JS (no necesita enqueue separado)
+        error_log("CSS loaded via Vite HMR (imported in JS)");
+    }
+
+    /**
+     * Cargar assets de producción (compilados) - NUEVO
+     */
+    private function load_production_assets($config, $assets)
+    {
+        $ext_id = $config['id'];
+
+        error_log("Loading production assets");
+
+        // Cargar JS
+        if (!empty($assets['js']) && is_array($assets['js'])) {
+            error_log("Loading JS assets: " . count($assets['js']));
+
+            foreach ($assets['js'] as $handle => $path) {
+                $full_url = $config['paths']['assets_url'] . $path;
+
+                error_log("  - Handle: {$handle}");
+                error_log("    URL: {$full_url}");
+
+                wp_enqueue_script(
+                    $handle,
+                    $full_url,
+                    [],
+                    $config['version'] ?? null,
+                    true
+                );
+
+                error_log("    ✅ Enqueued");
+            }
+        }
+
+        // Cargar CSS
+        if (!empty($assets['css']) && is_array($assets['css'])) {
+            error_log("Loading CSS assets: " . count($assets['css']));
+
+            foreach ($assets['css'] as $handle => $path) {
+                $full_url = $config['paths']['assets_url'] . $path;
+
+                error_log("  - Handle: {$handle}");
+                error_log("    URL: {$full_url}");
+
+                wp_enqueue_style(
+                    $handle,
+                    $full_url,
+                    [],
+                    $config['version'] ?? null
+                );
+
+                error_log("    ✅ Enqueued");
+            }
+        }
+    }
+
+    /**
      * Obtener de cache
      */
     private function get_from_cache()
@@ -646,7 +816,7 @@ class ExtensionRegistry
             return;
         }
 
-        if (JUZT_STACK_DEBUG === false) {
+        if (is_admin() == true || JUZT_STACK_DEBUG === false) {
             return;
         }
 
@@ -737,5 +907,101 @@ class ExtensionRegistry
         }
 
         echo '</pre></div>';
+    }
+
+    /**
+     * Auto-detectar extensiones en plugins activos
+     */
+    public function auto_discover_extensions()
+    {
+        // Obtener plugins activos
+        $active_plugins = get_option('active_plugins', []);
+
+        foreach ($active_plugins as $plugin_file) {
+            $plugin_path = WP_PLUGIN_DIR . '/' . $plugin_file;
+            $plugin_dir = dirname($plugin_path);
+
+            // Buscar juzt-extension.php en la raíz del plugin
+            $extension_file = $plugin_dir . '/juzt-extension.php';
+
+            if (file_exists($extension_file)) {
+                error_log("🔍 Found juzt-extension.php in: {$plugin_dir}");
+
+                try {
+                    $config = include $extension_file;
+
+                    if (is_array($config)) {
+                        // Validar configuración mínima
+                        if (empty($config['id']) || empty($config['name'])) {
+                            error_log("⚠️ Invalid extension config in: {$extension_file}");
+                            continue;
+                        }
+
+                        $ext_id = sanitize_key($config['id']);
+
+                        // NUEVO: Si ya existe (del cache), solo registrar assets
+                        if (isset($this->extensions[$ext_id])) {
+                            error_log("📦 Extension loaded from cache: {$ext_id}, registering assets...");
+
+                            // Actualizar config
+                            $this->extensions[$ext_id] = array_merge($this->extensions[$ext_id], $config);
+
+                            // Registrar assets
+                            if (!empty($config['assets'])) {
+                                add_action('wp_enqueue_scripts', function () use ($config) {
+                                    $this->load_assets($config);
+                                }, 20);
+                            }
+
+                            continue; // ← No intentar registrar de nuevo
+                        }
+
+                        // Registrar nueva extensión
+                        $registered = $this->register_extension($config);
+
+                        if ($registered) {
+                            error_log("✅ Extension registered: {$config['id']}");
+                        } else {
+                            error_log("❌ Failed to register extension: {$config['id']}");
+                        }
+                    } else {
+                        error_log("⚠️ juzt-extension.php didn't return an array in: {$extension_file}");
+                    }
+                } catch (\Exception $e) {
+                    error_log("❌ Error loading extension: {$extension_file} - " . $e->getMessage());
+                }
+            }
+        }
+
+        error_log("🔍 Auto-discovery completed. Extensions found: " . count($this->extensions));
+    }
+
+    /**
+     * Refrescar el índice de una extensión específica - NUEVO
+     * 
+     * @param string $ext_id
+     */
+    public function refresh_extension($ext_id)
+    {
+        if (!isset($this->extensions[$ext_id])) {
+            return false;
+        }
+
+        $ext_config = $this->extensions[$ext_id];
+
+        // Limpiar índices existentes de esta extensión
+        if (isset($this->index['templates'][$ext_id])) {
+            unset($this->index['templates'][$ext_id]);
+        }
+        if (isset($this->index['sections'][$ext_id])) {
+            unset($this->index['sections'][$ext_id]);
+        }
+
+        // Re-escanear
+        $this->scan_extension($ext_id, $ext_config);
+
+        error_log("✅ Extension {$ext_id} refreshed");
+
+        return true;
     }
 }
