@@ -1154,7 +1154,7 @@ class Builder
                     </h1>
                     <p>Customizer themes created by <a href="www.juztstack.dev" target="_blank">JuztStack</a></p>
                 </div>
-                <button class="juzt-studio-close-app">
+                <button title="exit" class="juzt-studio-close-app">
                     &#10005;
                 </button>
             </header>
