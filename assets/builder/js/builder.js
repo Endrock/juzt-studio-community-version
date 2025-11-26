@@ -52,6 +52,7 @@
     message: null,
     loading: null,
     saveButton: null,
+    clearCacheButton: null,
     templateTitle: null,
     builder: null,
     previewFrame: null, // NUEVO: iframe de preview
@@ -94,6 +95,7 @@
     dom.previewFrame = document.getElementById("js-preview-frame");
     dom.previewToggle = document.getElementById("js-preview-toggle");
     dom.settingsPanel = document.getElementById("js-settings-panel");
+    dom.clearCacheButton = document.querySelector(".juzt-studio-clear-cache");
   }
 
   // Cargar datos iniciales
@@ -499,6 +501,11 @@
       dom.closeApp.addEventListener("click", function () {
         window.location.href = window.sectionsBuilderData.adminUrl;
       });
+    }
+
+    // Clear Cache - NUEVO
+    if (dom.clearCacheButton) {
+      dom.clearCacheButton.addEventListener("click", clearCache);
     }
 
     // Guardar plantilla
@@ -1250,6 +1257,47 @@
   // ==========================================
   // GUARDAR PLANTILLA
   // ==========================================
+
+  // Limpiar caché
+  async function clearCache() {
+    if (
+      !confirm(
+        "¿Estás seguro de limpiar el caché? Se recargarán todas las plantillas y secciones."
+      )
+    ) {
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("action", "clear_builder_cache");
+    formData.append("nonce", sectionsBuilderData.nonce);
+
+    try {
+      const response = await fetch(sectionsBuilderData.ajaxUrl, {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        alert(
+          "✅ " +
+            data.data.message +
+            "\n\nTemplates: " +
+            data.data.templates_count +
+            "\nSections: " +
+            data.data.sections_count
+        );
+        location.reload(); // Recargar para ver cambios
+      } else {
+        alert("❌ Error: " + (data.data?.message || "Unknown error"));
+      }
+    } catch (error) {
+      console.error("Error:", error);
+      alert("❌ Error al limpiar caché");
+    }
+  }
 
   async function saveTemplate() {
     if (!state.selectedTemplate) {

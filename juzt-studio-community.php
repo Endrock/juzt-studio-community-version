@@ -3,7 +3,7 @@
  * Plugin Name: Juzt Studio (Community version)
  * Plugin URI: https://juztstack.com
  * Description: Customizer editor for general settings and templates json.
- * Version: 1.0.0
+ * Version: 1.2.0
  * Author: JuztStack
  * License: MIT
  * Requires at least: 5.8
@@ -17,7 +17,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Definir constantes
-define('JUZTSTUDIO_CM_VERSION', '1.0.0');
+define('JUZTSTUDIO_CM_VERSION', '1.2.0');
 define('JUZTSTUDIO_CM_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('JUZTSTUDIO_CM_PLUGIN_PATH', plugin_dir_path(__FILE__));
 

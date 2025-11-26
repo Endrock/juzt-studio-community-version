@@ -69,6 +69,8 @@ class Builder
         add_action('wp_ajax_get_all_section_schemas', [$this, 'ajax_get_all_section_schemas']);
 
         add_action('wp_ajax_get_templates_by_source', [$this, 'ajax_get_templates_by_source']);
+
+        add_action('wp_ajax_clear_builder_cache', [$this, 'ajax_clear_cache']);
     }
 
     /**
@@ -1167,6 +1169,11 @@ class Builder
                     </h1>
                     <p>Customizer themes created by <a href="www.juztstack.dev" target="_blank">JuztStack</a></p>
                 </div>
+
+                <button class="juzt-studio-clear-cache">
+                    🔄 Limpiar Caché
+                </button>
+
                 <button title="exit" class="juzt-studio-close-app">
                     &#10005;
                 </button>
@@ -2423,5 +2430,37 @@ TWIG;
         wp_send_json_success([
             'templates_by_source' => $grouped,
         ]);
+    }
+
+    /**
+     * AJAX: Limpiar caché del registry
+     */
+    public function ajax_clear_cache()
+    {
+        check_ajax_referer('sections_builder_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'Unauthorized'], 403);
+        }
+
+        $core = \Juztstack\JuztStudio\Community\Core::get_instance();
+
+        if ($core && isset($core->extension_registry)) {
+            $core->extension_registry->clear_cache();
+            $core->extension_registry->index = [
+                'sections' => [],
+                'templates' => [],
+                'snippets' => [],
+            ];
+            $core->extension_registry->build_index();
+
+            wp_send_json_success([
+                'message' => 'Cache cleared successfully',
+                'templates_count' => count($core->extension_registry->get_all_templates()),
+                'sections_count' => count($core->extension_registry->get_all_sections())
+            ]);
+        }
+
+        wp_send_json_error(['message' => 'No se pudo acceder al registry']);
     }
 }

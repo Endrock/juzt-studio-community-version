@@ -38,7 +38,7 @@ class ExtensionRegistry
     /**
      * Cache key
      */
-    const CACHE_KEY = 'juzt_registry_index_v1';
+    const CACHE_KEY = 'juzt_registry_index_' . JUZTSTUDIO_CM_VERSION;
     const CACHE_DURATION = HOUR_IN_SECONDS;
 
     /**
@@ -846,7 +846,24 @@ class ExtensionRegistry
      */
     public function clear_cache()
     {
+        global $wpdb;
+
+        // Borrar transient específico
         delete_transient(self::CACHE_KEY);
+
+        // Borrar TODOS los transients relacionados (por si hay versiones antiguas)
+        $wpdb->query(
+            "DELETE FROM {$wpdb->options} 
+         WHERE option_name LIKE '_transient_juzt_registry_%' 
+         OR option_name LIKE '_transient_timeout_juzt_registry_%'"
+        );
+
+        // Limpiar object cache si existe
+        if (function_exists('wp_cache_flush')) {
+            wp_cache_flush();
+        }
+
+        error_log('🧹 All registry cache cleared');
     }
 
     public function debugPanel()
