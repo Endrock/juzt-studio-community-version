@@ -1163,20 +1163,24 @@ class Builder
                 <div>
                     <h1>
                         <img
-                            style="width: 250px;"
+                            style="width: 200px;"
                             src="<?php echo JUZTSTUDIO_CM_PLUGIN_URL . 'assets/images/logo-text.png'; ?>"
                             alt="<?php echo esc_html__('JuztStudio Community Version', 'sections-builder'); ?>" />
                     </h1>
                     <p>Customizer themes created by <a href="www.juztstack.dev" target="_blank">JuztStack</a></p>
                 </div>
 
-                <button class="juzt-studio-clear-cache">
-                    🔄 Limpiar Caché
-                </button>
+                <div class="juzt-studio-header-buttons">
+                    <button class="juzt-studio-clear-cache">
+                        <span class="dashicons dashicons-update"></span>
+                        Clear Cache
+                    </button>
+                    <button title="exit" class="juzt-studio-close-app">
+                        <span class="dashicons dashicons-no-alt"></span> Exit
+                    </button>
+                </div>
 
-                <button title="exit" class="juzt-studio-close-app">
-                    &#10005;
-                </button>
+
             </header>
             <div id="juzt-studio-app"></div>
         </div>
@@ -2142,7 +2146,7 @@ use Timber\Timber;
 \$context['order'] = \$template_content['order'];
 \$context['sections'] = \$template_content['sections'];
 
-Timber::render('templates/{$template_name}.twig', \$context); 
+Timber::render('templates/index.twig', \$context); 
 
 PHP;
     }
@@ -2446,12 +2450,7 @@ TWIG;
         $core = \Juztstack\JuztStudio\Community\Core::get_instance();
 
         if ($core && isset($core->extension_registry)) {
-            $core->extension_registry->clear_cache();
-            $core->extension_registry->index = [
-                'sections' => [],
-                'templates' => [],
-                'snippets' => [],
-            ];
+            $core->extension_registry->reset_cache();
             $core->extension_registry->build_index();
 
             wp_send_json_success([

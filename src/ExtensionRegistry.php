@@ -57,6 +57,17 @@ class ExtensionRegistry
         add_action('wp_footer', [$this, 'debugPanel'], 100);
     }
 
+    public function reset_cache()
+    {
+        $this->clear_cache();
+        $this->index = [
+            'sections' => [],
+            'templates' => [],
+            'snippets' => [],
+        ];
+        $this->extensions = [];
+    }
+
     /**
      * Registrar extensión
      * 

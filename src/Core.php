@@ -216,7 +216,11 @@ class Core
         // 8. Hacer accesible la instancia globalmente
         global $sections_builder_theme;
         $sections_builder_theme = $this;
+
+        // 9. Proteger acceso a templates JSON
+        //add_action('template_redirect', [$this, 'protected_templates_json']);
     }
+
     public function find_section_file($section)
     {
         return $this->sections->find_section_file($section);
@@ -343,5 +347,20 @@ class Core
     public function get_registry()
     {
         return $this->extension_registry;
+    }
+
+    /***
+     * Protected access to templates JSON
+     */
+
+    public function protected_templates_json()
+    {
+        var_dump($_SERVER['REQUEST_URI']);
+        if (
+            strpos($_SERVER['REQUEST_URI'], '/templates/') !== false
+            && pathinfo($_SERVER['REQUEST_URI'], PATHINFO_EXTENSION) === 'json'
+        ) {
+            wp_die('Access denied');
+        }
     }
 }
